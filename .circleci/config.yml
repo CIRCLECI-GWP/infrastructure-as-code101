@@ -1,0 +1,34 @@
+version: 2.1
+
+# Builds the tutorial's tooling image, then runs the Terraform and Pulumi tests
+# inside it. Both test suites use mocked providers, so no cloud credentials are needed.
+
+jobs:
+  build-and-test:
+    docker:
+      - image: cimg/base:current
+    steps:
+      - checkout
+      - setup_remote_docker
+      - run:
+          name: Build the tooling image
+          command: docker build -t iac101 .
+      - run:
+          name: Terraform format, validate, and test
+          command: |
+            docker run --rm -w /root/project/terraform/gcp/compute iac101 bash -c '
+              terraform fmt -check -recursive &&
+              terraform init -backend=false -input=false &&
+              terraform validate &&
+              terraform test'
+      - run:
+          name: Pulumi unit tests
+          command: |
+            docker run --rm -w /root/project/pulumi/gcp/compute iac101 bash -c '
+              pulumi install &&
+              venv/bin/python -m unittest -v'
+
+workflows:
+  test:
+    jobs:
+      - build-and-test
