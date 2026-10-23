@@ -1,3 +1,0 @@
-name: gke
-runtime: python
-description: Deploys App to Google Cloud Platform GKE service

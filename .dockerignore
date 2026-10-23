@@ -1,55 +1,18 @@
-#Security/Credentials Ignores
-cicd_demo_gcp_creds.json
+.git/
+.circleci/
 
-#Terraform Ignore file
-*.dll
-*.exe
-.DS_Store
-example.tf
-.terraform/
-terraform.tfplan
-terraform.tfstate
-bin/
-modules-dev/
-/pkg/
-website/.vagrant
-website/.bundle
-website/build
-website/node_modules
-.vagrant/
-*.backup
-./*.tfstate
-.terraform/
-*.log
-*.bak
-*~
-.*.swp
-.idea
-*.iml
-*.test
-*.iml
-plan.txt
-website/vendor
-namecheap.tf
+# Never bake credentials into the image
+*.json
+!package.json
 
-# Test exclusions
-!command/test-fixtures/**/*.tfstate
-!command/test-fixtures/**/.terraform/
+# Terraform working files and state
+**/.terraform/
+**/.terraform.lock.hcl.bak
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
 
-#Pulumi ignores
-/.pulumi/
-/.vscode/
-bin/
-node_modules/
-*.pyc
-.Python
-include/
-lib/
-yarn.lock
-package-lock.json
-# Pulumi.*.yaml
-.idea/
-*.iml
-
-#Pipenv
-Pipfile.lock
+# Pulumi/Python working files
+**/venv/
+**/__pycache__/
+**/*.pyc

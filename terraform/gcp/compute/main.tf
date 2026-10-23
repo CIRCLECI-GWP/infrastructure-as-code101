@@ -1,81 +1,75 @@
-variable "project_name" {
-  type = string
-  default = "cicd-workshops"
-}
+terraform {
+  required_version = ">= 1.7"
 
-variable "port_number" {
-  type = string
-  default = "5000"
-}
-
-variable "docker_declaration" {
-  type = string
-  # Change the image: string to match the docker image you want to use
-  default = "spec:\n  containers:\n    - name: test-docker\n      image: 'ariv3ra/workshops-infra-as-code101:latest'\n      stdin: false\n      tty: false\n  restartPolicy: Always\n"
-}
-
-variable "boot_image_name" {
-  type = string
-  default = "projects/cos-cloud/global/images/cos-stable-69-10895-62-0"
-}
-
-data "google_compute_network" "default" {
-  name = "default"
-}
-
-# Specify the provider (GCP, AWS, Azure)
-provider "google"{
-  credentials = file("~/.config/gcloud/cicd_demo_gcp_creds.json")
-  project = var.project_name
-  region = "us-east1-b"
-}
-
-resource "google_compute_firewall" "http-5000" {
-  name    = "http-5000"
-  network = data.google_compute_network.default.name
-
-  allow {
-    protocol = "icmp"
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "~> 8.8"
+    }
   }
+}
+
+# The project comes from the GOOGLE_CLOUD_PROJECT environment variable, and
+# credentials come from Application Default Credentials (ADC).
+provider "google" {
+  region = "us-central1"
+  zone   = "us-central1-a"
+}
+
+# A dedicated VPC network, so the tutorial doesn't depend on the project's default network
+resource "google_compute_network" "app" {
+  name                    = "iac101-terraform"
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "app" {
+  name          = "iac101-terraform"
+  network       = google_compute_network.app.id
+  ip_cidr_range = "10.10.0.0/24"
+}
+
+# Allow public traffic to the app port, but only on VMs with this tag
+resource "google_compute_firewall" "allow_app" {
+  name    = "iac101-terraform-allow-8080"
+  network = google_compute_network.app.name
 
   allow {
     protocol = "tcp"
-    ports    = [var.port_number]
+    ports    = ["8080"]
   }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["iac101-terraform"]
 }
 
-resource "google_compute_instance" "default" {
-  name = "workshops-infra-as-code101"
-  machine_type = "g1-small"
-  zone = "us-east1-b"
-  tags =[
-      "name","workshops-infra-as-code101"
-  ]
+# An e2-micro VM in us-central1 with a 10 GB standard disk fits the Compute Engine Free Tier
+resource "google_compute_instance" "app" {
+  name         = "iac101-terraform"
+  machine_type = "e2-micro"
+  tags         = ["iac101-terraform"]
 
   boot_disk {
-    auto_delete = true
     initialize_params {
-      image = var.boot_image_name
-      type = "pd-standard"
+      image = "cos-cloud/cos-stable"
+      size  = 10
+      type  = "pd-standard"
     }
-  }
-
-  metadata = {
-    gce-container-declaration = var.docker_declaration
-  }
-
-  labels = {
-    container-vm = "cos-stable-69-10895-62-0"
   }
 
   network_interface {
-    network = "default"
+    subnetwork = google_compute_subnetwork.app.id
     access_config {
-      // Ephemeral IP
+      # Ephemeral public IP
     }
   }
+
+  metadata_startup_script = file("${path.module}/startup.sh")
 }
 
-output "Public_IP_Address" {
-  value = google_compute_instance.default.network_interface[0].access_config[0].nat_ip
+output "public_ip" {
+  value = google_compute_instance.app.network_interface[0].access_config[0].nat_ip
+}
+
+output "app_url" {
+  value = "http://${google_compute_instance.app.network_interface[0].access_config[0].nat_ip}:8080"
 }
