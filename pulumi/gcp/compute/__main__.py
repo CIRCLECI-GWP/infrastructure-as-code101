@@ -1,54 +1,57 @@
-import os
+"""Deploys a sample web app to a Compute Engine VM.
+
+The project comes from the GOOGLE_CLOUD_PROJECT environment variable, and
+credentials come from Application Default Credentials (ADC).
+"""
+from pathlib import Path
+
 import pulumi
-from pulumi_gcp import storage
-from pulumi_gcp import compute
+import pulumi_gcp as gcp
 
-app_name = None
-docker_hub_user = 'ariv3ra'
-docker_image = None
-image_tag = None
+APP_PORT = 8080
+VM_TAG = "iac101-pulumi"
 
-if 'CIRCLE_SHA1' in os.environ:
-    image_tag = os.environ['CIRCLE_SHA1']
-else:
-    image_tag = 'latest'
+startup_script = Path(__file__).with_name("startup.sh").read_text()
 
-if 'CIRCLE_PROJECT_REPONAME' in os.environ:
-    app_name = os.environ['CIRCLE_PROJECT_REPONAME']
-    docker_image_name = app_name +':{0}'.format(image_tag)
-else:
-    app_name = 'workshops-infra-as-code101'
-    docker_image_name = '{0}/{1}:{2}'.format(docker_hub_user, app_name, image_tag)
+# A dedicated VPC network, so the program doesn't depend on the project's default network
+network = gcp.compute.Network("iac101-pulumi", auto_create_subnetworks=False)
+subnet = gcp.compute.Subnetwork(
+    "iac101-pulumi",
+    network=network.id,
+    ip_cidr_range="10.20.0.0/24",
+)
 
-disk = {
-    'initializeParams': {
-        'image': 'projects/cos-cloud/global/images/cos-stable-69-10895-62-0'
-    }
-}
+# Allow public traffic to the app port, but only on VMs with this tag
+firewall = gcp.compute.Firewall(
+    "allow-8080",
+    network=network.name,
+    allows=[{"protocol": "tcp", "ports": [str(APP_PORT)]}],
+    source_ranges=["0.0.0.0/0"],
+    target_tags=[VM_TAG],
+)
 
-meta_data = {"gce-container-declaration":"spec:\n  containers:\n    - name: " + app_name + "\n      image: " + docker_image_name +"\n      stdin: false\n      tty: false\n  restartPolicy: Always\n"}
+# An e2-micro VM in us-central1 with a 10 GB standard disk fits the Compute Engine Free Tier
+instance = gcp.compute.Instance(
+    "iac101-pulumi",
+    machine_type="e2-micro",
+    tags=[VM_TAG],
+    boot_disk={
+        "initialize_params": {
+            "image": "cos-cloud/cos-stable",
+            "size": 10,
+            "type": "pd-standard",
+        },
+    },
+    network_interfaces=[
+        {
+            "subnetwork": subnet.id,
+            "access_configs": [{}],  # Ephemeral public IP
+        }
+    ],
+    metadata_startup_script=startup_script,
+)
 
-addr = compute.address.Address(resource_name=app_name)
-external_ip = addr.address
+public_ip = instance.network_interfaces.apply(lambda nics: nics[0].access_configs[0].nat_ip)
 
-network = compute.Network("network")
-network_interface = [
-    {
-        'network': network.id,
-        'accessConfigs': [{'nat_ip': external_ip}],
-    }
-]
-
-firewall = compute.Firewall("firewall", network=network.self_link, allows=[{
-    'protocol': "tcp",
-    'ports': ["22", "5000"]
-}])
-
-instance = compute.Instance(app_name, name=app_name, boot_disk=disk, machine_type='g1-small',
-                            network_interfaces=network_interface, metadata=meta_data)
-
-# Export the DNS name of the bucket
-pulumi.export('instance_name', instance.name)
-pulumi.export('instance_meta_data', instance.metadata)
-pulumi.export('instance_network', instance.network_interfaces)
-pulumi.export('external_ip', addr.address)
+pulumi.export("public_ip", public_ip)
+pulumi.export("app_url", pulumi.Output.concat("http://", public_ip, f":{APP_PORT}"))

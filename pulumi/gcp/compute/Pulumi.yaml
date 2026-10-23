@@ -1,3 +1,10 @@
 name: compute
-runtime: python
-description: Deploys App to Google Cloud Platform
+description: Deploys a sample web app to a Compute Engine VM
+runtime:
+  name: python
+  options:
+    toolchain: pip
+    virtualenv: venv
+config:
+  gcp:region: us-central1
+  gcp:zone: us-central1-a
